@@ -1,5 +1,6 @@
 const express = require("express");
 const axios = require("axios");
+const crypto = require("crypto");
 const {
   getQBConfig,
   updateTokens,
@@ -8,6 +9,93 @@ const {
 } = require("../qbconfig");
 
 const router = express.Router();
+
+// ────────────────────────────────────────────────────────────
+// Cookie-based token persistence for Vercel serverless
+// ────────────────────────────────────────────────────────────
+
+const COOKIE_NAME = "qb_tokens";
+const COOKIE_SECRET = process.env.QB_CLIENT_SECRET || "fallback-secret-key-32chars!!!!!";
+
+function encrypt(text) {
+  const key = crypto.scryptSync(COOKIE_SECRET, "salt", 32);
+  const iv = crypto.randomBytes(16);
+  const cipher = crypto.createCipheriv("aes-256-cbc", key, iv);
+  let encrypted = cipher.update(text, "utf8", "hex");
+  encrypted += cipher.final("hex");
+  return iv.toString("hex") + ":" + encrypted;
+}
+
+function decrypt(text) {
+  try {
+    const key = crypto.scryptSync(COOKIE_SECRET, "salt", 32);
+    const [ivHex, encryptedHex] = text.split(":");
+    if (!ivHex || !encryptedHex) return null;
+    const iv = Buffer.from(ivHex, "hex");
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    let decrypted = decipher.update(encryptedHex, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch (e) {
+    console.error("Cookie decryption failed:", e.message);
+    return null;
+  }
+}
+
+function setTokenCookie(res, tokens) {
+  const payload = JSON.stringify(tokens);
+  const encrypted = encrypt(payload);
+  const isProduction = process.env.NODE_ENV === "production" || process.env.VERCEL;
+  res.setHeader("Set-Cookie", [
+    `${COOKIE_NAME}=${encrypted}; Path=/; HttpOnly; SameSite=Lax; Max-Age=604800${isProduction ? "; Secure" : ""}`,
+  ]);
+}
+
+function clearTokenCookie(res) {
+  res.setHeader("Set-Cookie", [
+    `${COOKIE_NAME}=; Path=/; HttpOnly; Max-Age=0`,
+  ]);
+}
+
+function getTokensFromCookie(req) {
+  const cookieHeader = req.headers.cookie || "";
+  const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
+  if (!match) return null;
+  const decrypted = decrypt(match[1]);
+  if (!decrypted) return null;
+  try {
+    return JSON.parse(decrypted);
+  } catch {
+    return null;
+  }
+}
+
+// Middleware: hydrate qbConfig from cookie if available (for Vercel)
+router.use((req, _res, next) => {
+  if (process.env.VERCEL) {
+    const cookieTokens = getTokensFromCookie(req);
+    if (cookieTokens && cookieTokens.accessToken) {
+      const currentConfig = getQBConfig();
+      // Only apply cookie tokens if they differ from env var defaults (meaning they're fresh)
+      if (cookieTokens.accessToken !== currentConfig.accessToken) {
+        setQBConfig({
+          realmId: cookieTokens.realmId,
+          accessToken: cookieTokens.accessToken,
+          refreshToken: cookieTokens.refreshToken,
+          basicToken: cookieTokens.basicToken,
+          companyName: cookieTokens.companyName,
+          companyId: cookieTokens.companyId,
+          environment: cookieTokens.environment,
+          connectedAt: cookieTokens.connectedAt,
+          lastSynced: cookieTokens.lastSynced,
+          tokenExpiresAt: cookieTokens.tokenExpiresAt,
+          syncedEntities: cookieTokens.syncedEntities,
+        });
+      }
+    }
+  }
+  next();
+});
 
 function getAppBaseUrl(req) {
   if (process.env.APP_URL) return process.env.APP_URL.replace(/\/$/, "");
@@ -62,6 +150,22 @@ router.get("/refresh-token", async (req, res) => {
       response.data.refresh_token,
       response.data.expires_in,
     );
+
+    // Also persist to cookie for Vercel
+    const updatedConfig = getQBConfig();
+    setTokenCookie(res, {
+      realmId: updatedConfig.realmId,
+      accessToken: updatedConfig.accessToken,
+      refreshToken: updatedConfig.refreshToken,
+      basicToken: updatedConfig.basicToken,
+      companyName: updatedConfig.companyName,
+      companyId: updatedConfig.companyId,
+      environment: updatedConfig.environment,
+      connectedAt: updatedConfig.connectedAt,
+      lastSynced: updatedConfig.lastSynced,
+      tokenExpiresAt: updatedConfig.tokenExpiresAt,
+      syncedEntities: updatedConfig.syncedEntities,
+    });
 
     // Do not return raw tokens to the caller to maintain security
     return res.json({
@@ -163,8 +267,7 @@ router.get("/api/auth/callback", async (req, res) => {
       Date.now() + (tokenResponse.data.expires_in || 3600) * 1000,
     ).toISOString();
 
-    // 2. Store tokens + connection metadata
-    setQBConfig({
+    const tokenData = {
       realmId: realmId,
       accessToken: tokenResponse.data.access_token,
       refreshToken: tokenResponse.data.refresh_token,
@@ -181,9 +284,13 @@ router.get("/api/auth/callback", async (req, res) => {
         "General Ledger",
         "Profit and Loss",
       ],
-    });
+    };
+
+    // 2. Store tokens + connection metadata (in-memory + /tmp file)
+    setQBConfig(tokenData);
 
     // 3. Fetch company info (non-blocking — connection is valid even if this fails)
+    let companyName = `Company ${realmId}`;
     try {
       const companyRes = await axios.get(
         `${qb.baseUrl}/v3/company/${realmId}/companyinfo/${realmId}?minorversion=75`,
@@ -197,17 +304,34 @@ router.get("/api/auth/callback", async (req, res) => {
 
       const info = companyRes.data.CompanyInfo;
       if (info) {
-        setQBConfig({ companyName: info.CompanyName });
+        companyName = info.CompanyName;
+        setQBConfig({ companyName });
         console.log(`🏢 Company: ${info.CompanyName}`);
       }
     } catch (companyErr) {
       console.warn("⚠️ Could not fetch company info:", companyErr.message);
-      setQBConfig({ companyName: `Company ${realmId}` });
+      setQBConfig({ companyName });
     }
+
+    // 4. Persist tokens to encrypted cookie (critical for Vercel serverless)
+    const updatedConfig = getQBConfig();
+    setTokenCookie(res, {
+      realmId: updatedConfig.realmId,
+      accessToken: updatedConfig.accessToken,
+      refreshToken: updatedConfig.refreshToken,
+      basicToken: updatedConfig.basicToken,
+      companyName: updatedConfig.companyName,
+      companyId: updatedConfig.companyId,
+      environment: updatedConfig.environment,
+      connectedAt: updatedConfig.connectedAt,
+      lastSynced: updatedConfig.lastSynced,
+      tokenExpiresAt: updatedConfig.tokenExpiresAt,
+      syncedEntities: updatedConfig.syncedEntities,
+    });
 
     console.log("✅ QuickBooks authentication successful.");
 
-    // 4. Redirect to frontend connections page
+    // 5. Redirect to frontend connections page
     return res.redirect(`${frontendUrl}/connections?status=success`);
   } catch (error) {
     console.error(
@@ -268,6 +392,7 @@ router.get("/api/auth/status", (req, res) => {
  */
 router.get("/api/auth/disconnect", (req, res) => {
   disconnectConfig();
+  clearTokenCookie(res);
 
   return res.json({
     success: true,

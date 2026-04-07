@@ -44,30 +44,37 @@ function saveState(state) {
   }
 }
 
-const savedState = loadState();
-const disconnected = !!savedState.disconnected;
+// Build config by merging env vars with any persisted state
+function buildConfig() {
+  const savedState = loadState();
+  const disconnected = !!savedState.disconnected;
 
-let qbConfig = {
-  realmId: disconnected ? null : (savedState.realmId || process.env.QB_REALM_ID),
-  accessToken: disconnected ? null : (savedState.accessToken || process.env.QB_ACCESS_TOKEN),
-  refreshToken: disconnected ? null : (savedState.refreshToken || process.env.QB_REFRESH_TOKEN),
-  basicToken: disconnected ? null : (savedState.basicToken || process.env.QB_BASIC_TOKEN),
-  baseUrl: process.env.QB_BASE_URL || "https://quickbooks.api.intuit.com",
-  clientId: process.env.QB_CLIENT_ID,
-  clientSecret: process.env.QB_CLIENT_SECRET,
-  companyName: savedState.companyName || null,
-  companyId: savedState.companyId || null,
-  environment: savedState.environment || (process.env.QB_BASE_URL?.includes("sandbox") ? "sandbox" : "production"),
-  connectedAt: savedState.connectedAt || null,
-  lastSynced: savedState.lastSynced || null,
-  tokenExpiresAt: savedState.tokenExpiresAt || null,
-  syncedEntities: savedState.syncedEntities || [],
-  disconnected,
-};
+  return {
+    realmId: disconnected ? null : (savedState.realmId || process.env.QB_REALM_ID),
+    accessToken: disconnected ? null : (savedState.accessToken || process.env.QB_ACCESS_TOKEN),
+    refreshToken: disconnected ? null : (savedState.refreshToken || process.env.QB_REFRESH_TOKEN),
+    basicToken: disconnected ? null : (savedState.basicToken || process.env.QB_BASIC_TOKEN),
+    baseUrl: process.env.QB_BASE_URL || "https://quickbooks.api.intuit.com",
+    clientId: process.env.QB_CLIENT_ID,
+    clientSecret: process.env.QB_CLIENT_SECRET,
+    companyName: savedState.companyName || null,
+    companyId: savedState.companyId || null,
+    environment: savedState.environment || (process.env.QB_BASE_URL?.includes("sandbox") ? "sandbox" : "production"),
+    connectedAt: savedState.connectedAt || null,
+    lastSynced: savedState.lastSynced || null,
+    tokenExpiresAt: savedState.tokenExpiresAt || null,
+    syncedEntities: savedState.syncedEntities || [],
+    disconnected,
+  };
+}
+
+// In-memory cache — refreshed from disk on every getQBConfig() call
+let qbConfig = buildConfig();
 
 function validateConfig() {
+  const cfg = getQBConfig();
   const required = ["realmId", "accessToken", "refreshToken", "basicToken"];
-  const missing = required.filter((key) => !qbConfig[key]);
+  const missing = required.filter((key) => !cfg[key]);
 
   if (missing.length > 0) {
     console.warn(`⚠️ Missing QuickBooks config: ${missing.join(", ")}`);
@@ -77,6 +84,10 @@ function validateConfig() {
 }
 
 function getQBConfig() {
+  // On Vercel, always re-read from /tmp in case another invocation wrote fresh tokens
+  if (process.env.VERCEL) {
+    qbConfig = buildConfig();
+  }
   return qbConfig;
 }
 

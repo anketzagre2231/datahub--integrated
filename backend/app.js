@@ -20,7 +20,8 @@ const invoiceRoutes = require("./routes/invoices/invoices");
 const cashflowRoutes = require("./routes/cash_flow/cash_flow");
 const user = require("./routes/user/newUser");
 
-const { validateConfig, getQBConfig } = require("./qbconfig");
+const { validateConfig, getQBConfig, setQBConfig } = require("./qbconfig");
+const crypto = require("crypto");
 
 const app = express();
 
@@ -40,6 +41,63 @@ app.use(express.urlencoded({ extended: true, limit: "2mb" }));
 
 app.use((req, _res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  next();
+});
+
+// ────────────────────────────────────────────────────────────
+// Global middleware: Hydrate qbConfig from encrypted cookie (Vercel)
+// This ensures ALL routes (customers, invoices, etc.) have fresh tokens
+// even on cold starts where /tmp state is lost.
+// ────────────────────────────────────────────────────────────
+const COOKIE_NAME = "qb_tokens";
+const COOKIE_SECRET = process.env.QB_CLIENT_SECRET || "fallback-secret-key-32chars!!!!!";
+
+function decryptCookie(text) {
+  try {
+    const key = crypto.scryptSync(COOKIE_SECRET, "salt", 32);
+    const [ivHex, encryptedHex] = text.split(":");
+    if (!ivHex || !encryptedHex) return null;
+    const iv = Buffer.from(ivHex, "hex");
+    const decipher = crypto.createDecipheriv("aes-256-cbc", key, iv);
+    let decrypted = decipher.update(encryptedHex, "hex", "utf8");
+    decrypted += decipher.final("utf8");
+    return decrypted;
+  } catch (e) {
+    return null;
+  }
+}
+
+app.use((req, _res, next) => {
+  if (process.env.VERCEL) {
+    const cookieHeader = req.headers.cookie || "";
+    const match = cookieHeader.match(new RegExp(`${COOKIE_NAME}=([^;]+)`));
+    if (match) {
+      const decrypted = decryptCookie(match[1]);
+      if (decrypted) {
+        try {
+          const cookieTokens = JSON.parse(decrypted);
+          if (cookieTokens && cookieTokens.accessToken) {
+            setQBConfig({
+              realmId: cookieTokens.realmId,
+              accessToken: cookieTokens.accessToken,
+              refreshToken: cookieTokens.refreshToken,
+              basicToken: cookieTokens.basicToken,
+              companyName: cookieTokens.companyName,
+              companyId: cookieTokens.companyId,
+              environment: cookieTokens.environment,
+              connectedAt: cookieTokens.connectedAt,
+              lastSynced: cookieTokens.lastSynced,
+              tokenExpiresAt: cookieTokens.tokenExpiresAt,
+              syncedEntities: cookieTokens.syncedEntities,
+            });
+            console.log("🍪 Hydrated qbConfig from cookie");
+          }
+        } catch (_) {
+          // Invalid cookie data, ignore
+        }
+      }
+    }
+  }
   next();
 });
 
