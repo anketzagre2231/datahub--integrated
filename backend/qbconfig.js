@@ -1,6 +1,12 @@
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const fs = require("fs");
+
+// On Vercel, env vars are injected natively — dotenv is only needed locally
+try {
+  require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+} catch (_) {
+  // dotenv file may not exist on Vercel; that's fine
+}
 
 const stateFile = process.env.QB_STATE_FILE || path.join(process.env.VERCEL ? "/tmp" : __dirname, "qb-state.json");
 

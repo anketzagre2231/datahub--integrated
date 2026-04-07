@@ -1,5 +1,9 @@
 const path = require("path");
-require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+try {
+  require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
+} catch (_) {
+  // env file may not exist on Vercel
+}
 const express = require("express");
 const cors = require("cors");
 const swaggerUi = require("swagger-ui-express");

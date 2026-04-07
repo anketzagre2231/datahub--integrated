@@ -4,7 +4,9 @@ export const config = {
   api: {
     externalResolver: true,
     bodyParser: false,
+    responseLimit: false,
   },
+  maxDuration: 30, // Allow up to 30s for QuickBooks API calls
 };
 
 export default function handler(req, res) {
