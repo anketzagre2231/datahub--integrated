@@ -1,0 +1,177 @@
+@import "tailwindcss";
+
+@theme inline {
+  /* Brand Colors */
+  --color-primary: #8bc53d;
+  --color-primary-dark: #476E2C;
+  --color-primary-light: #C9E4A4;
+  --color-secondary: #6D6E71;
+  --color-secondary-light: #A5A5A5;
+
+  /* Accent Colors */
+  --color-accent-1: #00648F;
+  --color-accent-2: #476E2C;
+  --color-accent-3: #00B0F0;
+  --color-accent-4: #05164d;
+
+  /* Extended palette */
+  --color-accent-light-blue: #A7DCF7;
+  --color-negative: #C62026;
+  --color-negative-soft: #ED9397;
+  --color-negative-bg: #fef2f2;
+  --color-warning: #F68C1F;
+  --color-warning-bg: #FAC086;
+
+  /* Surfaces — matches reference #F9FAFB feel */
+  --color-bg-page: #f7f8fa;
+  --color-bg-card: #ffffff;
+  --color-bg-sidebar: #ffffff;
+  --color-bg-sidebar-hover: #f0f7e6;
+  --color-bg-sidebar-active: #eef6e0;
+  --color-bg-input: #ffffff;
+  --color-bg-skeleton: #e8eaed;
+
+  /* Borders */
+  --color-border: #e5e7eb;
+  --color-border-light: #f0f1f3;
+  --color-border-input: #d1d5db;
+
+  /* Text */
+  --color-text-primary: #1a1a2e;
+  --color-text-secondary: #6D6E71;
+  --color-text-muted: #9ca3af;
+  --color-text-on-primary: #ffffff;
+
+  /* Shadows — very subtle, reference-matched */
+  --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-card-hover: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-sidebar: 2px 0 8px rgba(0, 0, 0, 0.04);
+  --shadow-dropdown: 0 4px 16px rgba(0, 0, 0, 0.12);
+
+  /* Fonts — Inter as primary, matching reference */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  /* Geometry — reference uses rounded-xl (12px) for cards, rounded-md (6px) for inputs/buttons */
+  --radius-card: 12px;
+  --radius-input: 6px;
+  --radius-button: 6px;
+}
+
+/* Base resets */
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background: var(--color-bg-page);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  font-feature-settings: "tnum" on, "lnum" on, "cv05" on;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-secondary-light);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-secondary);
+}
+
+/* Skeleton animation */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(90deg,
+      var(--color-bg-skeleton) 25%,
+      #f3f4f6 50%,
+      var(--color-bg-skeleton) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+/* Accordion transition */
+.accordion-content {
+  overflow: hidden;
+  transition: max-height 0.3s ease, opacity 0.25s ease;
+}
+
+/* Report row hover */
+.report-row:hover {
+  background-color: #f9fafb;
+}
+
+/* Sticky header for reports */
+.sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--color-bg-card);
+}
+
+@layer components {
+  /* Reusable Component Classes */
+  .card-base {
+    @apply bg-bg-card rounded-xl border border-border transition-all duration-300;
+    box-shadow: var(--shadow-card);
+  }
+  
+  .card-p {
+    @apply p-6;
+  }
+
+  .btn-primary {
+    @apply h-10 px-4 bg-primary text-white text-[14px] font-semibold rounded-md hover:bg-primary-dark transition-all disabled:opacity-50 flex items-center justify-center gap-2 active:scale-[0.98];
+  }
+
+  .btn-secondary {
+    @apply h-10 px-4 bg-bg-card border border-border rounded-md text-[14px] font-medium text-text-primary hover:bg-bg-page transition-colors flex items-center justify-center gap-2;
+  }
+
+  .btn-negative {
+    @apply h-10 px-4 text-[14px] font-medium text-negative border border-negative/30 rounded-md hover:bg-negative-bg transition-all flex items-center justify-center gap-2;
+  }
+
+  .input-base {
+    @apply w-full h-10 px-3 bg-bg-card border border-border-input rounded-md text-[14px] text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-primary focus:border-primary transition-all;
+  }
+
+  .page-container {
+    @apply flex flex-col h-full bg-bg-page;
+  }
+
+  .page-content {
+    @apply flex-1 p-6 space-y-6 overflow-y-auto;
+  }
+
+  .page-title {
+    @apply text-[24px] font-bold text-text-primary mb-6;
+  }
+}
